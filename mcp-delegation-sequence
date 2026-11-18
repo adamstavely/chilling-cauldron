@@ -1,0 +1,41 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant A as Agent (workload identity)
+    participant STS as Enterprise STS (ICAM)
+    participant G as Grant Store (ICAM)
+    participant EG as Enterprise MCP Gateway
+    participant DG as Domain MCP Gateway (Cerbos)
+    participant M as MCP Server
+
+    rect rgb(235, 242, 250)
+    Note over U,G: One-time setup for async use (user signed in)
+    U->>STS: Authenticate (step-up for broad scopes)
+    U->>G: Create delegation grant (agent-x, scope, expiry)
+    G-->>U: grant_id g-123
+    end
+
+    alt User present (interactive)
+        U->>A: Request + live user token
+        A->>STS: OBO exchange (subject = user token, actor = agent credential)
+    else User absent (async)
+        A->>STS: Token exchange (actor = agent credential, grant_id g-123)
+        STS->>G: Validate grant and revocation status
+    end
+    STS->>STS: Re-check user's current attributes and recent-login rule
+    STS-->>A: T1: sub=adam, act=agent-x, aud=enterprise-gw, exp 5m, bound to agent key
+
+    A->>EG: Tool call + T1 (DPoP proof)
+    EG->>EG: Validate signature, aud, binding, act present. Coarse policy and tool registry
+    EG->>STS: Exchange T1 (actor = EG credential, resource = domain-gw, narrower scope)
+    STS-->>EG: T2: sub=adam, act=agent-x, aud=domain-gw, narrower scope, exp not beyond T1
+    EG->>DG: Tool call + T2
+    DG->>DG: Cerbos ABAC (principal = adam attrs, actor = agent-x, resource attrs)
+    DG->>STS: Exchange T2 (resource = mcp-server, single tool)
+    STS-->>DG: T3: sub=adam, act=agent-x, aud=mcp-server, exp seconds to minutes
+    DG->>M: Invoke tool + T3
+    M-->>DG: Result
+    DG-->>EG: Result
+    EG-->>A: Result
+
+    Note over STS,G: CAEP/SSF event (offboarding, attribute change) revokes grant. Next exchange fails.

@@ -1,0 +1,55 @@
+---
+config:
+  layout: elk
+---
+flowchart LR
+    A["Agent<br/>(SPIRE identity)"]
+    M["MCP Server"]
+
+    subgraph ENT["Enterprise deployment"]
+        EG["Enterprise MCP Gateway<br/>(product TBD, possibly Tyk)<br/>token validation, tool registry,<br/>coarse policy, audit"]
+    end
+
+    subgraph DOM["Domain deployment"]
+        DG["Tyk<br/>Domain MCP Gateway<br/>Cerbos plugin"]
+    end
+
+    FGA[("OpenFGA<br/>delegation store<br/>+ grant service")]
+    PDP{{"Cerbos<br/>PDP"}}
+    STS[["ICAM STS<br/>token issuer"]]
+
+    A -- "1. request assertion (grant_id)" --> FGA
+    FGA -- "2. signed 60s assertion<br/>sub=user, may_act=agent" --> A
+    A -- "3. exchange assertion<br/>+ agent credential" --> STS
+    STS -- "4. T1: sub=user, act=agent<br/>aud=enterprise-gw" --> A
+
+    A -- "5. tool call + T1" --> EG
+    EG -- "6. exchange T1<br/>resource=domain-gw" --> STS
+    STS -- "7. T2: aud=domain-gw<br/>narrower scope" --> EG
+    EG -- "8. tool call + T2" --> DG
+
+    DG -. "9. optional task-scoped check" .-> FGA
+    FGA -. "10. delegation exists" .-> DG
+    DG -- "11. authz request: user, agent,<br/>grant, tool, resource" --> PDP
+    PDP -- "12. allow / deny" --> DG
+
+    DG -- "13. exchange T2<br/>resource=mcp-server" --> STS
+    STS -- "14. T3: aud=mcp-server<br/>single tool" --> DG
+    DG -- "15. tool call + T3" --> M
+
+    M -. "16. result" .-> DG
+    DG -. "17. result" .-> EG
+    EG -. "18. result" .-> A
+
+    classDef context fill:#f4f4f4,stroke:#999,stroke-dasharray:4 3,color:#333
+    classDef ent fill:#f4f4f4,stroke:#3b6db3,stroke-dasharray:6 3,color:#1a2b4a
+    classDef tyk fill:#e8f0fb,stroke:#3b6db3,color:#1a2b4a
+    classDef fga fill:#eaf6ee,stroke:#2f8a4f,color:#163d24
+    classDef pdp fill:#fdf1e4,stroke:#c7782a,color:#4a2a0c
+    classDef sts fill:#f3eafa,stroke:#7a46a8,color:#2e1645
+    class A,M context
+    class EG ent
+    class DG tyk
+    class FGA fga
+    class PDP pdp
+    class STS sts
